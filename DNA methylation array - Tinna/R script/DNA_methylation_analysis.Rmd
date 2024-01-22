@@ -1,0 +1,543 @@
+---
+title: "Salvor_DNAmethylation_Rawdata"
+output: html_document
+date: "2022-10-05"
+---
+
+# packages
+```{r}
+# if (!require("BiocManager", quietly = TRUE))
+#    install.packages("BiocManager")
+# BiocManager::install(version = "3.15")
+
+# BiocManager::install("minfi")
+library(minfi)
+
+# Manifest for Illumina's EPIC methylation arrays 
+# BiocManager::install("IlluminaHumanMethylationEPICmanifest")
+library (IlluminaHumanMethylationEPICmanifest)
+
+# Annotation for Illumina's EPIC methylation arrays
+# BiocManager::install("IlluminaHumanMethylationEPICanno.ilm10b4.hg19")
+library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
+
+# BiocManager::install("shinyMethyl")
+library("shinyMethyl")
+
+# BiocManager::install("sva")
+library(sva)
+
+# install.packages("Rfast")
+library(Rfast)
+
+# BiocManager::install("limma")
+library(limma)
+
+```
+
+# import data
+```{r}
+
+baseDir<-"/Users/tinnareynis/Salvor_DNAmethylation/R_raw_data"
+
+targets<-read.metharray.sheet(baseDir)  
+
+RGset <- read.metharray.exp(file.path(baseDir, "206685390167"))
+
+#add group to sample sheet
+samplesheet$group<-c("Technical1", "DNA-6", "DNA-5", "DNA-2", "DNA-4", "DNA-1", "Technical2", "DNA-3")
+samplesheet$replicate<-c("control", "replicate-3", "replicate-2", "replicate-2", "replicate-1", "replicate-1", "control", "replicate-3")
+samplesheet$temp<-c("control", "32", "32", "37", "32", "37", "control", "37")
+
+
+
+pd$group<-c("Technical1", "DNA-6", "DNA-5", "DNA-2", "DNA-4", "DNA-1", "Technical2", "DNA-3")
+pd$temp<-c("control", "32", "32", "37", "32", "37", "control", "37")
+pd$group<-c("Technical1", "DNA-6", "DNA-5", "DNA-2", "DNA-4", "DNA-1", "Technical2", "DNA-3")
+
+rownames(pd)
+head(pd)
+
+manifest <- getManifest(RGset)
+manifest
+
+#import manifest from Illumnina
+library(readr)
+infinium_methylationepic_v_1_0_b5_manifest_file <- read_csv("R_raw_data/infinium-methylationepic-v-1-0-b5-manifest-file.csv")
+
+head(infinium_methylationepic_v_1_0_b5_manifest_file)
+
+#add header 
+names(infinium_methylationepic_v_1_0_b5_manifest_file) <- infinium_methylationepic_v_1_0_b5_manifest_file[7,]
+
+
+```
+
+# preprocess
+```{r}
+GRset <- preprocessNoob(RGset, dyeMethod="single")
+GRset <- mapToGenome(GRset)
+GR <- granges(GRset)
+```
+
+# QC
+```{r}
+summary <- shinySummarize(RGset)
+runShinyMethyl(summary)
+
+qcReport(RGset, sampNames = NULL, sampGroups = pd$temp, pdf = "qcReport.pdf",
+    maxSamplesPerPage = 24, controls = c("BISULFITE CONVERSION I",
+    "BISULFITE CONVERSION II", "EXTENSION", "HYBRIDIZATION",
+    "NON-POLYMORPHIC", "SPECIFICITY I", "SPECIFICITY II", "TARGET REMOVAL"))
+
+#QC report shows same results as provided by Illumina
+
+```
+
+# get beta values
+```{r}
+#get beta value matrix
+beta <- getBeta(GRset)
+```
+
+# IlmnID: Unique identifier from the Illumina CG database.
+
+#SP1
+```{r}
+# SP1: chr12:53380336-53380819 (CpG ISLAND)
+# convert to hg19 -> chr12:53774120-53774603	chr12:53380337-53380819	1
+# manifest file chr12:53774336-53774603
+# chr12:53773979-
+
+sp1_location<-data.frame(chr=12, start = 53772940, end= 53774574)
+
+sp1_location<-makeGRangesFromDataFrame(sp1_location)
+
+seqlevels(sp1_location)<-c("chr12")
+seqlevels(sp1_location)<-seqlevels(GR)
+
+findOverlaps(GR, sp1_location)
+
+cg03437025<-GR[551968] # ensambl 12:53380527-53380576(1) - manifest chr12:53774336-53774603
+cg22384675<-GR[551969] # ensambl no site- manifest chr12:53774336-53774603
+cg14794577<-GR[551970] # ensambl 12:53380654-53380703(-1) manifest chr12:53774336-53774603
+cg27401989<-GR[551971] # ensambl 12:53380663-53380712(1) manifest chr12:53774336-53774603
+
+
+beta_sp1 <- beta[rownames(beta) %in% c("cg23598562"), ]
+beta_sp1<-data.frame(beta_sp1, rownames=c("control", "t32", "t32", "t37", "t32", "t37", "control", "t37"))
+plot_sp1<-beta_sp1[-c(1, 7),]
+t.test(
+  subset(plot_sp1, rownames=="t32")$beta_sp1,
+  subset(plot_sp1, rownames=="t37")$beta_sp1
+)
+
+## All cg sites in USCS_CpGs_Islands_Name : chr12:53774336-53774603
+# cg23598562  p-value = 0.003703 # 12:53380028-53380077(1) #GR[551964]
+
+```
+## All cg sites in USCS_CpGs_Islands_Name : chr12:53774336-53774603 unsignificant 
+```{r}
+# cg03437025<-GR[551968]      p-value = 0.907
+# cg22384675<-GR[551969]      p-value = 0.4224
+# cg14794577<-GR[551970]      p-value = 0.3057
+# cg27401989<-GR[551971]      p-value = 0.2019
+
+
+# cg22384675  p-value = 0.2019
+# cg01212840  p-value = 0.4815
+# cg03437025  p-value = 0.907
+# cg05238461  p-value = 0.6553
+# cg13510262  p-value = 0.4692
+# cg02491754  p-value = 0.6686
+# cg01599904  p-value = 0.1916
+# cg14794577  p-value = 0.3057
+# cg11606261  p-value = 0.4612
+# cg20163807  p-value = 0.2581
+# cg16992440  p-value = 0.733
+# cg00495415  p-value = 0.6542
+# cg08962767  p-value = 0.1888
+# cg12857166  p-value = 0.8455
+# cg25186332  p-value = 0.2295
+# cg16578815  p-value = 0.8072
+# cg13075709  p-value = 0.9977
+# cg27401989  p-value = 0.2019
+# cg26652092  p-value = 0.2851
+
+```
+
+# SP1 FIGURE
+```{r}
+# SP1 starts at chr12:53773979, promoter region 5 kb upsteam: chr12:53768979-53773979
+
+sp1_promoter<-data.frame(chr=12, start = 53768979, end= 53773979)
+sp1_promoter<-makeGRangesFromDataFrame(sp1_promoter)
+
+seqlevels(sp1_promoter)<-c("chr12")
+seqlevels(sp1_promoter)<-seqlevels(GR)
+
+findOverlaps(GR, sp1_promoter)
+
+# 12 hits 551955-551966 -> GR[551955:551966] 
+
+# cg01212840    chr12  53772249  
+# cg16578815    chr12  53772929      
+# cg02491754    chr12  53773040      
+# cg13075709    chr12  53773242      
+# cg05238461    chr12  53773300      
+# cg01599904    chr12  53773322      
+# cg26652092    chr12  53773602      
+# cg08962767    chr12  53773782      
+# cg00495415    chr12  53773795      
+# cg23598562    chr12  53773812      
+# cg20163807    chr12  53773828      
+# cg12857166    chr12  53773854      
+
+sp1_promoter_cg<-c("cg01212840", "cg16578815", "cg02491754", "cg13075709", "cg05238461", "cg01599904", "cg26652092", "cg08962767", "cg00495415", "cg23598562", "cg20163807", "cg12857166")
+
+#library(data.table)
+
+beta_sp1promoter <- data.frame(names = row.names(beta), beta)
+beta_sp1promoter<- beta_sp1promoter[beta_sp1promoter$names %in% c("cg01212840", "cg16578815", "cg02491754", "cg13075709", "cg05238461", "cg01599904", "cg26652092", "cg08962767", "cg00495415", "cg23598562", "cg20163807", "cg12857166"),]
+
+# drop controls 
+beta_sp1promoter<-beta_sp1promoter[,-2]
+beta_sp1promoter<-beta_sp1promoter[,-7]
+
+write.csv(beta_sp1promoter, "/Users/tinnareynis/Salvor_DNAmethylation/R_directory/sp1_promoter.csv")
+
+
+# SP1 starts at chr12:53773979, region 2 kb downsteam: chr12:53773979-53775979
+
+sp1_promoter_down<-data.frame(chr=12, start = 53773979, end= 53775979)
+sp1_promoter_down<-makeGRangesFromDataFrame(sp1_promoter_down)
+
+seqlevels(sp1_promoter_down)<-c("chr12")
+seqlevels(sp1_promoter_down)<-seqlevels(GR)
+
+findOverlaps(GR, sp1_promoter_down)
+
+# 6 hits 551967-551972 -> GR[551967:551972] 
+  # cg13510262    chr12  53774037      
+  # cg03437025    chr12  53774311      
+  # cg22384675    chr12  53774315      
+  # cg14794577    chr12  53774438      
+  # cg27401989    chr12  53774447      
+  # cg11606261    chr12  53775336      
+
+sp1_promoter_cg_down<-c("cg13510262", "cg03437025", "cg22384675", "cg14794577", "cg27401989", "cg11606261")
+
+beta_sp1promoter_down <- data.frame(names = row.names(beta), beta)
+beta_sp1promoter_down<- beta_sp1promoter_down[beta_sp1promoter_down$names %in% c("cg13510262", "cg03437025", "cg22384675", "cg14794577", "cg27401989", "cg11606261"),]
+
+# drop controls 
+beta_sp1promoter_down<-beta_sp1promoter_down[,-2]
+beta_sp1promoter_down<-beta_sp1promoter_down[,-7]
+
+write.csv(beta_sp1promoter_down, "/Users/tinnareynis/Salvor_DNAmethylation/R_directory/sp1_promoter_down.csv")
+
+```
+
+# CIRBP Figure 
+```{r}
+# CIRBP starts at chr19:1269267, promoter region 5 kb upsteam: chr19:1264267-1269267
+
+CIRBP_promoter<-data.frame(chr=12, start = 1264267, end= 1269267)
+CIRBP_promoter<-makeGRangesFromDataFrame(CIRBP_promoter)
+
+seqlevels(CIRBP_promoter)<-c("chr19")
+seqlevels(CIRBP_promoter)<-seqlevels(GR)
+
+findOverlaps(GR, CIRBP_promoter)
+
+# 19 hits 757513-757531 -> GR[757513:757531]
+
+cirbp_promoter_cg<-c("cg23001905", "cg10667102", "cg09834951", "cg00073090", "cg02917867",
+                     "cg27573291", "cg02036581", "cg20154287", "cg04581214", "cg01530202",
+                     "cg12012524", "cg27263492", "cg21481141", "cg13078388", "cg01073369", 
+                     "cg16886045", "cg22172973", "cg07655450", "cg01595484")
+
+
+beta_cirbppromoter <- data.frame(names = row.names(beta), beta)
+beta_cirbppromoter<- beta_cirbppromoter[beta_cirbppromoter$names %in% c("cg23001905","cg10667102", "cg09834951", "cg00073090", "cg02917867","cg27573291", "cg02036581", "cg20154287", "cg04581214", "cg01530202", "cg12012524", "cg27263492", "cg21481141", "cg13078388", "cg01073369", "cg16886045", "cg22172973", "cg07655450", "cg01595484"), ]
+
+# drop controls 
+beta_cirbppromoter<-beta_cirbppromoter[,-2]
+beta_cirbppromoter<-beta_cirbppromoter[,-7]
+
+write.csv(beta_cirbppromoter, "/Users/tinnareynis/Salvor_DNAmethylation/R_directory/cirbp_promoter.csv")
+
+
+
+# CIRBP starts at chr19:1269267,  region 2 kb downsteam: chr19:1269267-1271267
+
+CIRBP_promoter_down<-data.frame(chr=12, start = 1269267, end= 1271267)
+CIRBP_promoter_down<-makeGRangesFromDataFrame(CIRBP_promoter_down)
+
+seqlevels(CIRBP_promoter_down)<-c("chr19")
+seqlevels(CIRBP_promoter_down)<-seqlevels(GR)
+
+findOverlaps(GR, CIRBP_promoter_down)
+
+
+# 10 hits 757532-757541 -> GR[757532:757541]
+
+cirbp_promoter_cg_down<-c("cg17957172", "cg07228817", "cg07648738", "cg18194038", "cg14198101",
+                     "cg23042318", "cg03834909", "cg26552621", "cg02644867", "cg08902698")
+
+
+beta_cirbppromoter_down <- data.frame(names = row.names(beta), beta)
+beta_cirbppromoter_down<- beta_cirbppromoter_down[beta_cirbppromoter_down$names %in% c("cg17957172", "cg07228817", "cg07648738", "cg18194038", "cg14198101",
+                     "cg23042318", "cg03834909", "cg26552621", "cg02644867", "cg08902698"), ]
+
+# drop controls 
+beta_cirbppromoter_down<-beta_cirbppromoter_down[,-2]
+beta_cirbppromoter_down<-beta_cirbppromoter_down[,-7]
+
+write.csv(beta_cirbppromoter_down, "/Users/tinnareynis/Salvor_DNAmethylation/R_directory/cirbp_promoter_down.csv")
+
+
+```
+
+#RBM3 FIGURE
+```{r}
+# RBM3 starts at chrX:48432741, promoter region 5 kb upsteam: chrX:48427741-48432741
+
+RBM3_promoter<-data.frame(chr=12, start = 48427741, end= 48432741)
+RBM3_promoter<-makeGRangesFromDataFrame(RBM3_promoter)
+seqlevels(RBM3_promoter)<-c("chrX")
+seqlevels(RBM3_promoter)<-seqlevels(GR)
+findOverlaps(GR, RBM3_promoter)
+
+# 7 hits 852607-852613 -> GR[852607:852613]
+
+rbm3_promoter_cg<-c("cg02272293", "cg11098911", "cg03128268", "cg12983165", "cg20657691",
+                     "cg27333993", "cg27044041")
+beta_rbm3promoter <- data.frame(names = row.names(beta), beta)
+beta_rbm3promoter<- beta_rbm3promoter[beta_rbm3promoter$names %in% c("cg02272293", "cg11098911", "cg03128268", "cg12983165", "cg20657691", "cg27333993", "cg27044041"), ]
+
+# drop controls 
+beta_rbm3promoter<-beta_rbm3promoter[,-2]
+beta_rbm3promoter<-beta_rbm3promoter[,-7]
+
+write.csv(beta_rbm3promoter, "/Users/tinnareynis/Salvor_DNAmethylation/R_directory/rbm3_promoter.csv")
+
+# RBM3 starts at chrX:48432741,  region 2 kb downsteam: chrX:48432741-48434741
+
+RBM3_promoter_down<-data.frame(chr=12, start = 48432741, end= 48434741)
+RBM3_promoter_down<-makeGRangesFromDataFrame(RBM3_promoter_down)
+seqlevels(RBM3_promoter_down)<-c("chrX")
+seqlevels(RBM3_promoter_down)<-seqlevels(GR)
+findOverlaps(GR, RBM3_promoter_down)
+
+# 14 hits 852614-852627 -> GR[852614:852627]
+
+rbm3_promoter_cg_down<-c("cg17290099", "cg25656978", "cg24741068", "cg11524947", "cg12251508",
+                     "cg16315447", "cg27124847", "cg18382400", "cg26155374", "cg12108689","cg24244718", "cg03838168", "cg01364327", "cg26486069")
+
+
+beta_rbm3promoter_down <- data.frame(names = row.names(beta), beta)
+beta_rbm3promoter_down<- beta_rbm3promoter_down[beta_rbm3promoter_down$names %in% c("cg17290099", "cg25656978", "cg24741068", "cg11524947", "cg12251508",
+                     "cg16315447", "cg27124847", "cg18382400", "cg26155374", "cg12108689","cg24244718", "cg03838168", "cg01364327", "cg26486069"), ]
+
+# drop controls 
+beta_rbm3promoter_down<-beta_rbm3promoter_down[,-2]
+beta_rbm3promoter_down<-beta_rbm3promoter_down[,-7]
+
+write.csv(beta_rbm3promoter_down, "/Users/tinnareynis/Salvor_DNAmethylation/R_directory/crbm3_promoter_down.csv")
+
+
+
+# cg11098911
+
+```
+
+
+```{r}
+plot_sp1<-beta_sp1[-c(1, 7),]
+
+plot(beta_sp1~rownames, plot_sp1, ylab="beta value", xlim=c(0.5,2.5), ylim=c(0,1), xlab="Temperature", xaxt="n", bty="l")
+  axis(1, at =c(1:2), labels=c("32°C", "37°C"), tick=FALSE)
+  stripchart(beta_sp1~rownames, data=plot_sp1, method="jitter", pch=19, cex=1.5, vertical=TRUE)
+
+
+t.test(
+  subset(plot_sp1, rownames=="t32")$beta_sp1,
+  subset(plot_sp1, rownames=="t37")$beta_sp1
+)
+
+```
+
+#CRIBP 
+```{r}
+## CIRBP chr19 1267856 1267858 (hg38) 1269267
+# convert to hg19 -> chr19 1262855 1273857 (same)
+
+cirbp_location<-data.frame(chr=19, start = 1262855, end=1273857)
+cirbp_location<-makeGRangesFromDataFrame(cirbp_location)
+
+seqlevels(cirbp_location)<-c("chr19")
+seqlevels(cirbp_location)<-seqlevels(GR)
+
+findOverlaps(GR, cirbp_location) #queryHits [757522]
+cg01530202<-GR[757522] #cg01530202 p-value = 0.2417
+
+# subset beta dataset cg01530202 (CIRBP) 
+beta_cirbp <- beta[rownames(beta) %in% c("cg01530202"), ]
+beta_cirbp<-data.frame(beta_cirbp, rownames=c("control", "t32", "t32", "t37", "t32", "t37", "control", "t37"))
+
+```
+
+#CIRBP plot and t-test
+```{r}
+
+plot_cirbp<-beta_cirbp[-c(1, 7),]
+
+plot(beta_cirbp~rownames, plot_cirbp, ylab="beta value", xlim=c(0.5,2.5), ylim=c(0,1), xlab="Temperature", xaxt="n", bty="l")
+  axis(1, at =c(1:2), labels=c("32°C", "37°C"), tick=FALSE)
+  stripchart(beta_cirbp~rownames, data=plot_cirbp, method="jitter", pch=19, cex=1.5, vertical=TRUE)
+
+
+t.test(
+  subset(plot_cirbp, rownames=="t32")$beta_cirbp,
+  subset(plot_cirbp, rownames=="t37")$beta_cirbp
+)
+
+# cg01530202<-GR[757522]    p-value = 0.2417
+
+# CIRBP extend location: 1kb up and downstream  (19-25)
+# cg02036581  p-value = 0.9019
+# cg20154287  p-value = 0.1224
+# cg04581214  p-value = 0.7103
+# cg12012524  p-value = 0.76
+# cg27263492  p-value = 0.1228
+# cg21481141  p-value = 0.5226
+
+# extend further: 5 kb up and downstream (11-18 ans 26-45)
+# cg15259572 p-value = 0.3774
+# cg05242915 p-value = 0.1251
+# cg23001905 p-value = 0.7625
+# cg10667102 p-value = 0.3118
+# cg09834951 p-value = 0.9236
+# cg00073090 p-value = 0.1003
+# cg02917867 p-value = 0.4297
+# cg27573291 p-value = 0.2267
+
+```
+
+# RBM3
+```{r}
+# 5 kb upstream of RBM3 chrX:48427722-48432738
+rbm3_location<-data.frame(chr="X", start = 48427722, end=48432738)
+rbm3_location<-makeGRangesFromDataFrame(rbm3_location)
+
+seqlevels(rbm3_location)<-c("chrX")
+seqlevels(rbm3_location)<-seqlevels(GR)
+
+findOverlaps(GR, rbm3_location) 
+# GR[852607]  cg02272293  p-value = 0.8543   
+# GR[852608]  cg11098911  p-value = 0.0259  # significant 
+# GR[852609]  cg03128268  p-value = 0.4616      
+# GR[852610]  cg12983165  p-value = 0.0748  # significant       
+# GR[852611]  cg20657691  p-value = 0.9735      
+# GR[852612]  cg27333993  p-value = 0.9989      
+# GR[852613]  cg27044041  p-value = 0.7527
+
+plot_rbm3<-beta_samples[rownames(beta_samples) %in% c("cg27044041"), ]
+plot_rbm3<-data.frame(plot_rbm3, rownames=c("t32", "t32", "t37", "t32", "t37", "t37"))
+
+plot(plot_rbm3~rownames, plot_rbm3, ylab="beta value", xlim=c(0.5,2.5), ylim=c(0,1), xlab="Temperature", xaxt="n", bty="l")
+stripchart(plot_rbm3~rownames, data=plot_rbm3, method="jitter", pch=19, cex=1.5, vertical=TRUE)
+
+
+t.test(
+  subset(plot_rbm3, rownames=="t32")$plot_rbm3,
+  subset(plot_rbm3, rownames=="t37")$plot_rbm3)
+
+```
+
+
+
+# top CpGs
+```{r}
+
+plot_cpg<-beta_samples[rownames(beta_samples) %in% c("cg11569235"), ]
+plot_cpg<-data.frame(plot_cpg, rownames=c("t32", "t32", "t37", "t32", "t37", "t37"))
+
+plot(plot_cpg~rownames, plot_cpg, ylab="beta value", xlim=c(0.5,2.5), ylim=c(0,1), xlab="Temperature", xaxt="n", bty="l")
+stripchart(plot_cpg~rownames, data=plot_cpg, method="jitter", pch=19, cex=1.5, vertical=TRUE)
+
+t.test(
+  subset(plot_cpg, rownames=="t32")$plot_cpg,
+  subset(plot_cpg, rownames=="t37")$plot_cpg)
+
+var.test(subset(plot_cpg, rownames=="t32")$plot_cpg,
+  subset(plot_cpg, rownames=="t37")$plot_cpg)
+
+
+
+
+```
+
+# CpG of interest
+```{r}
+# SBF1 cg03266200 (top of list) p-value = 2.683e-05
+
+```
+
+
+# merge data frames to get genes
+```{r}
+sign_cpgs_
+
+cpg_genes<-data.frame(infinium_methylationepic_v_1_0_b5_manifest_file$IlmnID, infinium_methylationepic_v_1_0_b5_manifest_file$UCSC_RefGene_Name, infinium_methylationepic_v_1_0_b5_manifest_file$UCSC_RefGene_Accession, infinium_methylationepic_v_1_0_b5_manifest_file$UCSC_RefGene_Group, infinium_methylationepic_v_1_0_b5_manifest_file$UCSC_CpG_Islands_Name)
+
+#delete first rows and rename columns
+cpg_genes<-cpg_genes[-c(1:7),]
+cpg_genes<-data.frame(cpg_genes,stringsAsFactors = FALSE, row.names = TRUE)
+colnames(cpg_genes)<- c("UCSC_RefGene_Name", "UCSC_RefGene_Accession", "UCSC_RefGene_Group", "UCSC_CpG_Islands_Name")
+
+# merge sign_cpgs_ and cpg_genes tables on rownames 
+
+cpg_merge <- merge(sign_cpgs_, cpg_genes,
+                          by = 'row.names', all = FALSE)
+# sort according to p val 
+cpg_merge <- cpg_merge[order(cpg_merge$P.Value),]  
+
+#use csv2 to be able to open in excel without trouble 
+write.csv2(cpg_merge, "/Users/tinnareynis/Salvor_DNAmethylation/R_directory/sig_cpg_genes.csv")
+
+```
+
+#overlay with screen genes to find any overlapping genes 
+```{r}
+
+screenhit_genes<-c(screen_hits$`SP1 candidate repressors`, screen_hits$`RBM3 candidate repressors`, screen_hits$`SP1 candidate activators`)
+
+cpg_merge_genes<-c(cpg_merge$UCSC_RefGene_Name)
+cpg_merge_genes<-unlist(strsplit(cpg_merge_genes,";"))
+
+intersect(screenhit_genes, cpg_merge_genes) 
+
+# only hit TTC37 cg11569235 # 5 UTR
+
+```
+
+
+
+```{r}
+# cg06011925
+
+fit2[c('cg06011925'),]
+
+
+```
+
+
+
+
+
+
+
+
+
