@@ -5,4 +5,4 @@ Here we have additional analyses from the temperature project. You can find code
 You can download the raw data here:
 
 
-(Raw data)[https://reiknistofnun-my.sharepoint.com/:u:/g/personal/kimberl_hi_is/EUlBbUWgbyJCv86Z9sUoE5ABDe5svWQWQK-WuNunGf8e2g?e=DHVZiI]
+(Raw data from DNA methylation array)[https://reiknistofnun-my.sharepoint.com/:u:/g/personal/kimberl_hi_is/EUlBbUWgbyJCv86Z9sUoE5ABDe5svWQWQK-WuNunGf8e2g?e=DHVZiI]
